@@ -1,21 +1,24 @@
 class_name Mech
 extends Node3D
-## Knife Cell Striker: agile locomotion, lateral dodge, procedural walk, chain-fire weapons.
-## The same class drives the player (input set by Mission) and lancemates (ai_tick).
+## Knife Cell Striker: throttle-driven legs, independent torso twist, procedural walk, chain-fire weapons.
+## The same class drives the player (throttle + turn set by Mission) and lancemates (move_wish from ai_tick).
 
 const STRIKER := preload("res://assets/mechs/striker_C.glb")
 const CAMO := preload("res://shaders/camo.gdshader")
 const PIVOTS := ["root", "pelvis", "torso", "hip_L", "hip_R", "knee_L", "knee_R", "ankle_L", "ankle_R",
-	"shoulder_L", "shoulder_R", "elbow_L", "elbow_R", "gatling_spin"]
+	"shoulder_L", "shoulder_R", "elbow_L", "elbow_R", "gatling_spin", "cockpit_cam"]
 
-const RUN := 18.0
-const BACK := 10.0
-const STRAFE := 14.0
-const ACCEL := 55.0
-const DODGE_SPEED := 36.0
-const DODGE_TIME := 0.42
-const DODGE_RECHARGE := 1.7
-const STRIDE := 4.6
+const RUN := 15.0          # 54 km/h at full throttle
+const BACK := 6.0          # full reverse
+const ACCEL := 4.5
+const BRAKE := 7.0
+const TURN_RATE := 1.05    # leg turn, rad/s at a standstill
+const TURN_RATE_RUN := 0.6 # leg turn at full speed
+const TWIST_MAX := deg_to_rad(110.0)
+const TWIST_RATE := 2.6    # torso twist, rad/s
+const PITCH_MIN := -0.45
+const PITCH_MAX := 0.5
+const STRIDE := 5.4
 const RADIUS := 2.4
 const CHAIN_GAP := 0.2
 
@@ -28,7 +31,11 @@ var pv := {}
 var mats := {}
 
 var vel := Vector3.ZERO
-var move_wish := Vector3.ZERO
+var move_wish := Vector3.ZERO   # AI only: desired ground velocity
+var throttle := 0.0             # player: -1 (full reverse) .. 1 (full ahead)
+var turn := 0.0                 # player: leg turn input -1 .. 1
+var speed := 0.0                # signed speed along the legs
+var twist := 0.0                # torso yaw relative to the legs
 var yaw := 0.0
 var aim_yaw := 0.0
 var aim_pitch := 0.0
@@ -36,10 +43,6 @@ var aim_point := Vector3.ZERO
 var phase := 0.0
 var amp := 0.0
 var prev_c := [1.0, 1.0]
-var dodge_t := 0.0
-var dodge_dir := 0.0
-var dodge_charges := 2.0
-var last_dodge := -99.0
 var land_crouch := 0.0
 var frozen := false
 var alive := true
@@ -58,7 +61,6 @@ var t := 0.0
 var seed_f := randf() * 10.0
 var ai_target: Node3D = null
 var formation := Vector3.ZERO
-var jets: Array[CPUParticles3D] = []
 
 # ---------------------------------------------------------------- model + materials
 static func build_model(lamp_col: Color, derelict := false) -> Node3D:
@@ -139,48 +141,12 @@ func setup(m: Node, cs: String, lamp_col: Color, player: bool) -> void:
 		{"name": "M.LASER", "cd": 0.0, "cool": 1.7, "heat": 10.0},
 		{"name": "SRM-2", "cd": 0.0, "cool": 2.6, "heat": 8.0},
 	]
-	_make_jets()
-
-func _make_jets() -> void:
-	var tex := GradientTexture2D.new()
-	tex.fill = GradientTexture2D.FILL_RADIAL
-	tex.fill_from = Vector2(0.5, 0.5)
-	tex.fill_to = Vector2(1.0, 0.5)
-	var g := Gradient.new()
-	g.set_color(0, Color(1, 1, 1, 1))
-	g.set_color(1, Color(1, 1, 1, 0))
-	tex.gradient = g
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
-	mat.vertex_color_use_as_albedo = true
-	mat.albedo_texture = tex
-	for sx in [-0.55, 0.55]:
-		var p := CPUParticles3D.new()
-		var q := QuadMesh.new()
-		q.size = Vector2(1.4, 1.4)
-		q.material = mat
-		p.mesh = q
-		p.amount = 40
-		p.lifetime = 0.45
-		p.emitting = false
-		p.local_coords = false
-		p.direction = Vector3(0, -0.4, -1)
-		p.spread = 18.0
-		p.initial_velocity_min = 14.0
-		p.initial_velocity_max = 22.0
-		p.gravity = Vector3.ZERO
-		p.scale_amount_min = 0.8
-		p.scale_amount_max = 1.6
-		var ramp := Gradient.new()
-		ramp.set_color(0, Color(1.0, 0.85, 0.6, 1.0))
-		ramp.set_color(1, Color(1.0, 0.25, 0.1, 0.0))
-		p.color_ramp = ramp
-		p.position = Vector3(sx, 2.25, -1.6)
-		pv["torso"].add_child(p)
-		jets.append(p)
+	if is_player:
+		# the pilot sits inside the torso: the cockpit replaces it for the camera
+		for n in ["torso_mesh", "pelvis_mesh"]:
+			var mi := model.find_child(n, true, false) as MeshInstance3D
+			if mi:
+				mi.visible = false
 
 # ---------------------------------------------------------------- frame update
 func update(delta: float) -> void:
@@ -204,39 +170,45 @@ func right_of(a: float) -> Vector3:
 	return Vector3(cos(a), 0.0, -sin(a))
 
 func _move(delta: float) -> void:
-	dodge_charges = minf(2.0, dodge_charges + delta / DODGE_RECHARGE)
-	if dodge_t > 0.0:
-		dodge_t -= delta
-		if dodge_t <= 0.0:
-			for j in jets:
-				j.emitting = false
 	land_crouch = maxf(0.0, land_crouch - delta * 1.6)
 	if frozen:
+		speed = 0.0
+		vel = Vector3.ZERO
 		return
-	var accel := ACCEL * (0.18 if dodge_t > 0.0 else 1.0)
-	var target := Vector3(move_wish.x, 0.0, move_wish.z)
-	vel = Vector3(vel.x, 0.0, vel.z).move_toward(target, accel * delta)
+	var rate := lerpf(TURN_RATE, TURN_RATE_RUN, clampf(absf(speed) / RUN, 0.0, 1.0))
+	var target := 0.0
+	if is_player:
+		target = throttle * (RUN if throttle > 0.0 else BACK)
+		yaw += turn * rate * delta
+	else:
+		# AI legs turn toward where they want to walk, and only walk the way they face
+		var wish := Vector2(move_wish.x, move_wish.z)
+		if wish.length() > 0.5:
+			var diff := wrapf(atan2(-move_wish.x, -move_wish.z) - yaw, -PI, PI)
+			yaw += clampf(diff, -rate * delta, rate * delta)
+			target = wish.length() * maxf(0.0, cos(diff))
+		else:
+			var diff := wrapf(aim_yaw - yaw, -PI, PI)
+			if absf(diff) > TWIST_MAX * 0.6:
+				yaw += clampf(diff, -rate * delta, rate * delta)
+	var speeding_up := speed == 0.0 or (signf(target) == signf(speed) and absf(target) > absf(speed))
+	speed = move_toward(speed, target, (ACCEL if speeding_up else BRAKE) * delta)
+	vel = fwd_vec() * speed
 	var np: Vector3 = mission.resolve_move(position, position + vel * delta, RADIUS)
 	var moved := Vector3(np.x - position.x, 0.0, np.z - position.z)
 	if delta > 0.0 and moved.length() < (vel * delta).length() * 0.5:
-		vel *= 0.5   # blocked by a wall or boulder
+		speed *= 0.5   # blocked by a wall or boulder
+		vel = fwd_vec() * speed
 	position = np
-	yaw = lerp_angle(yaw, aim_yaw, 1.0 - exp(-7.5 * delta))
 	rotation.y = yaw
+	if not is_player:
+		twist = clampf(wrapf(aim_yaw - yaw, -PI, PI), -TWIST_MAX, TWIST_MAX)
 
-func try_dodge(dir: float) -> bool:
-	if frozen or not alive or dodge_charges < 1.0 or dodge_t > 0.0 or dir == 0.0:
-		return false
-	dodge_charges -= 1.0
-	dodge_t = DODGE_TIME
-	dodge_dir = dir
-	vel = vel * 0.3 + right_of(aim_yaw) * dir * DODGE_SPEED
-	last_dodge = mission.clock
-	heat += 4.0
-	for j in jets:
-		j.emitting = true
-	Sfx.play("dodge", -2.0 if is_player else -12.0)
-	return true
+## Player torso: slew the twist toward the wanted value at the torso's rate.
+func slew_torso(want_twist: float, delta: float) -> void:
+	want_twist = clampf(want_twist, -TWIST_MAX, TWIST_MAX)
+	twist = move_toward(twist, want_twist, TWIST_RATE * delta)
+	aim_yaw = yaw + twist
 
 func _animate(delta: float) -> void:
 	var fw := fwd_vec()
@@ -244,16 +216,12 @@ func _animate(delta: float) -> void:
 	var vf := vel.dot(fw)
 	var vs := vel.dot(rt)
 	var spd := Vector2(vs, vf).length()
-	amp = lerpf(amp, clampf(spd / 7.0, 0.0, 1.0), 1.0 - exp(-6.0 * delta))
-	var dk := 0.0
-	if dodge_t > 0.0:
-		dk = sin((1.0 - dodge_t / DODGE_TIME) * PI)
-	else:
-		var dsgn := -1.0 if vf < -0.5 else 1.0
-		phase += dsgn * delta * maxf(spd, 3.0 * amp) / (2.0 * STRIDE) * TAU
+	amp = lerpf(amp, clampf(spd / 7.0, 0.0, 1.0), 1.0 - exp(-4.0 * delta))
+	var dsgn := -1.0 if vf < -0.5 else 1.0
+	phase += dsgn * delta * maxf(spd, 3.0 * amp) / (2.0 * STRIDE) * TAU
 	var fwk := clampf(absf(vf) / maxf(spd, 0.01), 0.0, 1.0)
 	var swk := clampf(vs / maxf(spd, 0.01), -1.0, 1.0)
-	var crouch := dk * 0.9 + land_crouch
+	var crouch := land_crouch
 	var hmax := 0.0
 	var i := 0
 	for side in ["L", "R"]:
@@ -261,10 +229,9 @@ func _animate(delta: float) -> void:
 		var s := sin(p)
 		var c := cos(p)
 		var lift := maxf(0.0, c)
-		var a := amp * (1.0 - dk)
-		var outward := 1.0 if side == "L" else -1.0
+		var a := amp
 		var hip_x := -0.26 - 0.44 * a * s * fwk - crouch * 0.28
-		var hip_z := -0.2 * a * s * swk + 0.24 * dk * outward
+		var hip_z := -0.2 * a * s * swk
 		var knee := 0.52 + 0.1 * a + 0.95 * a * lift * lift + crouch * 0.62
 		var ankle := -(hip_x + knee) + 0.1 * a * s
 		pv["hip_" + side].rotation = Vector3(hip_x, 0.0, hip_z)
@@ -277,10 +244,10 @@ func _animate(delta: float) -> void:
 		i += 1
 	var pel: Node3D = pv["pelvis"]
 	pel.position.y = hmax - 0.04 * (1.0 - amp) * (0.5 + 0.5 * sin(t * 1.4 + seed_f))
-	pel.rotation.z = clampf(vs * 0.016 + dk * 0.32 * dodge_dir, -0.5, 0.5) + 0.04 * amp * sin(phase)
+	pel.rotation.z = clampf(vs * 0.016, -0.5, 0.5) + 0.05 * amp * sin(phase)
 	pel.rotation.y = 0.06 * amp * sin(phase) * fwk
-	var twist := clampf(wrapf(aim_yaw - yaw, -PI, PI), -1.2, 1.2)
-	pv["torso"].rotation = Vector3(-clampf(aim_pitch, -0.45, 0.5) * 0.9, twist - pel.rotation.y, -pel.rotation.z * 0.6)
+	var tw := clampf(wrapf(aim_yaw - yaw, -PI, PI), -TWIST_MAX, TWIST_MAX)
+	pv["torso"].rotation = Vector3(-clampf(aim_pitch, PITCH_MIN, PITCH_MAX) * 0.9, tw - pel.rotation.y, -pel.rotation.z * 0.6)
 	pv["shoulder_L"].rotation.x = 0.12 * amp * sin(phase + PI) * fwk
 	pv["shoulder_R"].rotation.x = 0.12 * amp * sin(phase) * fwk
 	pv["gatling_spin"].rotation.z += spin * delta
@@ -289,8 +256,8 @@ func _footfall(side: String, a: float) -> void:
 	var foot: Vector3 = pv["ankle_" + side].global_position
 	mission.fx.dust(foot, 0.6 + a * 0.6)
 	if is_player:
-		Sfx.play("step", -6.0 + a * 4.0)
-		mission.shake(0.18 * a)
+		Sfx.play("step", -3.0 + a * 4.0, 0.8)
+		mission.footfall(a)
 	else:
 		Sfx.play_at("step", foot, mission.listener(), -8.0)
 

@@ -98,7 +98,7 @@ func _tick_sabots(delta: float) -> void:
 			mission.on_player_hit(s["drill"])
 			mission.fx.explosion(n.position, 0.35)
 			dead = true
-		elif not s["done"] and s["min_d"] < 16.0 and d > s["min_d"] + 1.0:
+		elif not s["done"] and s["min_d"] < 30.0 and d > s["min_d"] + 1.0:
 			s["done"] = true
 			mission.on_sabot_missed(s["min_d"], s["drill"])
 		if n.position.y < mission.terrain.sample(n.position.x, n.position.z) or s["life"] <= 0.0:

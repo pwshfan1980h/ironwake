@@ -32,8 +32,8 @@
  {
   "id": "alpha_02",
   "who": "ANVIL",
-  "text": "Put your reticle on it and hold space. Your weapons fire one after another. Lead it if it moves.",
-  "dur": 7.93
+  "text": "Twist your torso onto it and hold space. Your weapons fire one after another. Lead it if it moves.",
+  "dur": 8.06
  },
  {
   "id": "kill_first",
@@ -56,26 +56,26 @@
  {
   "id": "drill_01",
   "who": "RATCHET",
-  "text": "Dodge drill, kid. That drone is loaded with training sabots. Watch for the glow, then hit shift with A or D.",
-  "dur": 8.25
+  "text": "Evasion drill, kid. That drone is loaded with training sabots. Watch for the glow, keep your throttle up, and walk across its line of fire.",
+  "dur": 10.28
  },
  {
   "id": "drill_02",
   "who": "RATCHET",
-  "text": "They're slow. You're not. Move.",
-  "dur": 3.45
+  "text": "A standing mech is a dead mech. Keep those legs moving.",
+  "dur": 4.38
  },
  {
   "id": "drill_dodge",
   "who": "KESTREL",
-  "text": "Nice slide.",
-  "dur": 1.3
+  "text": "Clean miss.",
+  "dur": 1.25
  },
  {
   "id": "drill_hit",
   "who": "RATCHET",
-  "text": "That's a hit. Again. Watch the glow.",
-  "dur": 3.85
+  "text": "That's a hit. Don't stand in its sights. Again.",
+  "dur": 4.59
  },
  {
   "id": "drill_done",

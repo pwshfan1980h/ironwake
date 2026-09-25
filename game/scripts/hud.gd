@@ -1,11 +1,18 @@
 class_name Hud
 extends Control
-## Gameplay HUD + comms radio (voice lines with subtitles).
+## The pilot's ocular implant overlay + comms radio (voice lines with subtitles).
+## Drawn into a SubViewport and projected through shaders/implant.gdshader (RGB split, scan, glitch).
+## Cockpit instruments live on the MFDs (mfd.gd); this layer carries what the implant adds on top.
 
+const IMPLANT := preload("res://shaders/implant.gdshader")
+const INK := Color(0.78, 0.96, 1.0)
+const DIM := Color(0.78, 0.96, 1.0, 0.45)
+const FAINT := Color(0.78, 0.96, 1.0, 0.16)
 const BONE := Color("e9e4d6")
-const DIM := Color(0.91, 0.89, 0.84, 0.5)
 const THREAT := Color("ff3b30")
-const PANEL := Color(0.05, 0.05, 0.05, 0.55)
+const CYAN := Color("5fd8ff")
+const HEAT := Color("ffb347")
+const SHADOW := Color(0, 0, 0, 0.55)
 
 var mission: Node
 var objective := ""
@@ -20,6 +27,29 @@ var current := {}
 var line_t := 0.0
 var radio_player := AudioStreamPlayer.new()
 var sys_player := AudioStreamPlayer.new()
+var link := 0.0       # implant sync: 0 offline .. 1 fully linked
+var glitch_t := 0.0
+var fx_mat: ShaderMaterial
+
+## Build the viewport + container that carry the overlay, add them to `parent`, return the Hud.
+static func mount(parent: Node, m: Node) -> Hud:
+	var box := SubViewportContainer.new()
+	box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	box.stretch = true
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var vp := SubViewport.new()
+	vp.transparent_bg = true
+	vp.disable_3d = true
+	vp.gui_disable_input = true
+	box.add_child(vp)
+	var h := Hud.new()
+	vp.add_child(h)
+	parent.add_child(box)
+	h.fx_mat = ShaderMaterial.new()
+	h.fx_mat.shader = IMPLANT
+	box.material = h.fx_mat
+	h.setup(m)
+	return h
 
 func setup(m: Node) -> void:
 	mission = m
@@ -63,6 +93,10 @@ func hit_marker() -> void:
 
 func flash_damage() -> void:
 	damage_t = 0.5
+	glitch(0.6)
+
+func glitch(k: float) -> void:
+	glitch_t = maxf(glitch_t, k)
 
 func show_callout(text: String) -> void:
 	callout = text
@@ -72,6 +106,16 @@ func _process(delta: float) -> void:
 	hit_t = maxf(0.0, hit_t - delta)
 	damage_t = maxf(0.0, damage_t - delta)
 	callout_t = maxf(0.0, callout_t - delta)
+	glitch_t = maxf(0.0, glitch_t - delta * 1.6)
+	var vs := get_viewport_rect().size
+	if size != vs:
+		size = vs
+	if fx_mat:
+		var g := glitch_t
+		if link < 1.0 and randf() < 0.04:
+			g = maxf(g, 0.5)
+		fx_mat.set_shader_parameter("glitch", g)
+		fx_mat.set_shader_parameter("link", link)
 	if not current.is_empty():
 		line_t += delta
 		if line_t > float(current["dur"]) + 1.0 and not radio_player.playing:
@@ -79,12 +123,24 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 # ---------------------------------------------------------------- drawing helpers
+## Text with a dark drop so thin implant glyphs read against bright sand.
 func _text(pos: Vector2, s: String, size: int, col: Color, align := HORIZONTAL_ALIGNMENT_LEFT, width := -1.0, font: Font = null) -> void:
-	draw_string(font if font else Game.font_mono, pos, s, align, width, size, col)
+	var f := font if font else Game.font_mono
+	if align == HORIZONTAL_ALIGNMENT_RIGHT and width <= 0.0:   # right-align on pos.x
+		pos.x -= f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+		align = HORIZONTAL_ALIGNMENT_LEFT
+	draw_string(f, pos + Vector2(1, 1), s, align, width, size, Color(0, 0, 0, SHADOW.a * col.a))
+	draw_string(f, pos, s, align, width, size, col)
 
-func _bar(r: Rect2, k: float, col: Color) -> void:
-	draw_rect(r, Color(col.r, col.g, col.b, 0.18))
-	draw_rect(Rect2(r.position, Vector2(r.size.x * clampf(k, 0.0, 1.0), r.size.y)), col)
+func _line(a: Vector2, b: Vector2, col: Color, w := 1.5) -> void:
+	draw_line(a + Vector2(1, 1), b + Vector2(1, 1), Color(0, 0, 0, 0.35 * col.a), w)
+	draw_line(a, b, col, w)
+
+func _arc(c: Vector2, r: float, a0: float, a1: float, col: Color, w := 2.0) -> void:
+	if absf(a1 - a0) < 0.001:
+		return
+	draw_arc(c + Vector2(1, 1), r, a0, a1, 32, Color(0, 0, 0, 0.35 * col.a), w)
+	draw_arc(c, r, a0, a1, 32, col, w)
 
 func _screen(world: Vector3) -> Variant:
 	var cam: Camera3D = mission.cam
@@ -96,89 +152,160 @@ func _draw() -> void:
 	var sz := size
 	if sz.x < 320.0 or sz.y < 240.0:
 		return
-	var c := sz * 0.5
-	var p: Mech = mission.player
 	var sc := clampf(sz.y / 900.0, 0.75, 1.6)
-	var fs := int(13 * sc)
-	# damage vignette
 	if damage_t > 0.0:
 		var a := damage_t * 0.9
 		var e := 90.0 * sc
-		draw_rect(Rect2(0, 0, sz.x, e), Color(0.8, 0.05, 0.02, a * 0.5))
-		draw_rect(Rect2(0, sz.y - e, sz.x, e), Color(0.8, 0.05, 0.02, a * 0.5))
-		draw_rect(Rect2(0, 0, e, sz.y), Color(0.8, 0.05, 0.02, a * 0.4))
-		draw_rect(Rect2(sz.x - e, 0, e, sz.y), Color(0.8, 0.05, 0.02, a * 0.4))
+		draw_rect(Rect2(0, 0, sz.x, e), Color(0.8, 0.05, 0.02, a * 0.35))
+		draw_rect(Rect2(0, sz.y - e, sz.x, e), Color(0.8, 0.05, 0.02, a * 0.35))
+		draw_rect(Rect2(0, 0, e, sz.y), Color(0.8, 0.05, 0.02, a * 0.3))
+		draw_rect(Rect2(sz.x - e, 0, e, sz.y), Color(0.8, 0.05, 0.02, a * 0.3))
+	if link > 0.0:
+		_draw_optic_frame(sz, sc)
+	if link < 1.0:
+		_draw_sync(sz, sc)
 	_draw_objective(sc)
 	_draw_radio(sz, sc)
 	if not show_combat:
 		return
 	_draw_world_markers(sz, sc)
 	_draw_compass(sz, sc)
-	# reticle
-	var r := 13.0 * sc
-	var rc := BONE if p.overheat <= 0.0 else THREAT
-	draw_arc(c, r, 0, TAU, 32, rc, 1.6)
-	for d in [Vector2.RIGHT, Vector2.LEFT, Vector2.UP, Vector2.DOWN]:
-		draw_line(c + d * (r + 4 * sc), c + d * (r + 13 * sc), rc, 1.6)
+	_draw_reticle(sz, sc)
+	_draw_throttle_tape(sz, sc)
+	_draw_threats(sz, sc)
+	if callout_t > 0.0:
+		_text(Vector2(0, sz.y * 0.5 - 110 * sc), callout, int(20 * sc), Color(0.37, 0.85, 1.0, minf(1.0, callout_t * 2.0)), HORIZONTAL_ALIGNMENT_CENTER, sz.x, Game.font_display)
+
+# ---------------------------------------------------------------- implant chrome
+func _draw_optic_frame(sz: Vector2, sc: float) -> void:
+	# corner arcs mark the edge of the implant's projection field
+	var col := Color(INK.r, INK.g, INK.b, 0.22 * link)
+	var m := 26.0 * sc
+	var k := 70.0 * sc
+	for q in [Vector2(0, 0), Vector2(1, 0), Vector2(0, 1), Vector2(1, 1)]:
+		var corner := Vector2(lerpf(m, sz.x - m, q.x), lerpf(m, sz.y - m, q.y))
+		var dx := 1.0 if q.x == 0.0 else -1.0
+		var dy := 1.0 if q.y == 0.0 else -1.0
+		draw_line(corner, corner + Vector2(dx * k, 0), col, 1.5)
+		draw_line(corner, corner + Vector2(0, dy * k), col, 1.5)
+		draw_line(corner + Vector2(dx * 6, dy * 6) * sc, corner + Vector2(dx * 18, dy * 6) * sc, col, 1.0)
+	_text(Vector2(m + 6 * sc, sz.y - m - 8 * sc), "GIDEON · N-LINK %d%%" % int(link * 100.0), int(10 * sc), Color(INK.r, INK.g, INK.b, 0.4 * link))
+
+func _draw_sync(sz: Vector2, sc: float) -> void:
+	var c := sz * 0.5
+	var col := INK
+	var lines := ["OCULAR IMPLANT · SABLE-PATTERN v3", "NEURAL HANDSHAKE", "MOTOR CORTEX MAP", "SENSOR FUSION", "WEAPON SLAVE"]
+	var shown := int(clampf(link, 0.0, 0.999) * lines.size()) + 1
+	for i in mini(shown, lines.size()):
+		var done := link * lines.size() > i + 1
+		_text(Vector2(c.x - 170 * sc, c.y - 40 * sc + i * 18 * sc), lines[i], int(12 * sc), col if done else DIM)
+		if i > 0:
+			_text(Vector2(c.x + 170 * sc, c.y - 40 * sc + i * 18 * sc), "SYNC" if done else "····", int(12 * sc), col if done else DIM, HORIZONTAL_ALIGNMENT_RIGHT, 0)
+	var r := Rect2(c.x - 170 * sc, c.y + 60 * sc, 340 * sc, 3 * sc)
+	draw_rect(r, FAINT)
+	draw_rect(Rect2(r.position, Vector2(r.size.x * link, r.size.y)), INK)
+
+func _draw_reticle(sz: Vector2, sc: float) -> void:
+	var p: Mech = mission.player
+	var c := sz * 0.5
+	var hot := p.overheat > 0.0
+	var rc := THREAT if hot else INK
+	var r := 11.0 * sc
+	_arc(c, r, 0, TAU, rc, 1.5)
+	for d in [Vector2.RIGHT, Vector2.LEFT, Vector2.DOWN]:
+		_line(c + d * (r + 4 * sc), c + d * (r + 12 * sc), rc, 1.5)
 	draw_rect(Rect2(c - Vector2(1.5, 1.5), Vector2(3, 3)), rc)
 	if hit_t > 0.0:
-		var k := 9.0 * sc
+		var k := 8.0 * sc
 		for d in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
 			draw_line(c + d * k, c + d * k * 2.0, Color(1, 0.85, 0.5), 2.2)
-	_draw_threats(sz, sc)
-	# armor + dodge (bottom left)
-	var bl := Vector2(28 * sc, sz.y - 96 * sc)
-	draw_rect(Rect2(bl - Vector2(12, 22) * sc, Vector2(270, 108) * sc), PANEL)
-	_text(bl, "ARMOR", fs, DIM)
-	_text(bl + Vector2(240 * sc, 0), "%d%%" % int(p.armor), fs, BONE, HORIZONTAL_ALIGNMENT_RIGHT, 0)
-	_bar(Rect2(bl + Vector2(0, 8 * sc), Vector2(240 * sc, 8 * sc)), p.armor / 100.0, BONE if p.armor > 35.0 else THREAT)
-	_text(bl + Vector2(0, 42 * sc), "DODGE  SHIFT + A / D", fs, DIM)
-	for i in 2:
-		var k := clampf(p.dodge_charges - i, 0.0, 1.0)
-		_bar(Rect2(bl + Vector2(i * 124 * sc, 50 * sc), Vector2(116 * sc, 8 * sc)), k, Color("5fd8ff") if k >= 1.0 else DIM)
-	_text(bl + Vector2(0, 80 * sc), "%3d KM/H" % int(Vector2(p.vel.x, p.vel.z).length() * 3.6), fs, BONE)
-	# weapons chain (bottom right)
-	var br := Vector2(sz.x - 300 * sc, sz.y - 124 * sc)
-	draw_rect(Rect2(br - Vector2(12, 22) * sc, Vector2(284, 136) * sc), PANEL)
-	_text(br, "CHAIN FIRE  SPACE", fs, DIM)
-	_text(br + Vector2(260 * sc, 0), "OVERHEAT" if p.overheat > 0.0 else "HEAT %d" % int(p.heat), fs,
-		THREAT if p.overheat > 0.0 or p.heat > 75.0 else BONE, HORIZONTAL_ALIGNMENT_RIGHT, 0)
-	_bar(Rect2(br + Vector2(0, 8 * sc), Vector2(260 * sc, 5 * sc)), p.heat / 100.0, THREAT if p.heat > 75.0 else Color("ffb347"))
+	# heat arc (left) and armor arc (right) hug the reticle
+	var R := 74.0 * sc
+	var span := 0.62
+	var hk := clampf(p.heat / 100.0, 0.0, 1.0)
+	var hcol := THREAT if p.heat > 75.0 or hot else HEAT
+	if hot and int(mission.clock * 6.0) % 2 == 0:
+		hcol = BONE
+	_arc(c, R, PI - span, PI + span, FAINT, 3.0)
+	_arc(c, R, PI + span - 2.0 * span * hk, PI + span, hcol, 3.0)
+	_line(c + Vector2(cos(PI + span * 0.5), sin(PI + span * 0.5)) * (R - 6 * sc), c + Vector2(cos(PI + span * 0.5), sin(PI + span * 0.5)) * (R + 6 * sc), THREAT, 1.5)
+	_text(c + Vector2(-R * cos(span) - 8 * sc, R * sin(span) + 16 * sc), "SHUTDOWN" if hot else "HEAT %d" % int(p.heat), int(10 * sc), hcol, HORIZONTAL_ALIGNMENT_RIGHT)
+	var ak := clampf(p.armor / 100.0, 0.0, 1.0)
+	var acol := INK if p.armor > 35.0 else THREAT
+	_arc(c, R, -span, span, FAINT, 3.0)
+	_arc(c, R, span - 2.0 * span * ak, span, acol, 3.0)
+	_text(c + Vector2(R * cos(span) + 8 * sc, R * sin(span) + 16 * sc), "ARM %d" % int(p.armor), int(10 * sc), acol)
+	# weapon pips under the reticle: fill = recharge, bright = next in the chain
+	var names := ["RAC", "LAS", "SRM"]
+	var pw := 34.0 * sc
+	var y := c.y + 58 * sc
 	for i in p.weapons.size():
 		var w: Dictionary = p.weapons[i]
-		var y := br.y + (38 + i * 28) * sc
-		var ready: bool = w["cd"] <= 0.0
-		var nxt: bool = i == p.chain_index
-		_text(Vector2(br.x, y), ("▶ " if nxt else "  ") + String(w["name"]), fs, BONE if ready else DIM)
-		_bar(Rect2(Vector2(br.x + 130 * sc, y - 9 * sc), Vector2(130 * sc, 7 * sc)), 1.0 - w["cd"] / w["cool"], BONE if ready else DIM)
-	if callout_t > 0.0:
-		_text(Vector2(0, c.y - 70 * sc), callout, int(20 * sc), Color(0.37, 0.85, 1.0, minf(1.0, callout_t * 2.0)), HORIZONTAL_ALIGNMENT_CENTER, sz.x, Game.font_display)
+		var x := c.x + (i - 1) * (pw + 8 * sc) - pw * 0.5
+		var ready: bool = w["cd"] <= 0.0 and not hot
+		var k := clampf(1.0 - w["cd"] / w["cool"], 0.0, 1.0)
+		var col := INK if ready else DIM
+		draw_rect(Rect2(x, y, pw, 3 * sc), FAINT)
+		draw_rect(Rect2(x, y, pw * k, 3 * sc), col)
+		_text(Vector2(x, y + 15 * sc), names[i], int(9 * sc), col if i == p.chain_index else DIM, HORIZONTAL_ALIGNMENT_CENTER, pw)
+	# torso twist: where the legs point, relative to the view
+	var tw := p.twist / Mech.TWIST_MAX
+	var ty := c.y + 92 * sc
+	var tw_w := 90.0 * sc
+	_line(Vector2(c.x - tw_w, ty), Vector2(c.x + tw_w, ty), FAINT, 1.0)
+	_line(Vector2(c.x, ty - 4 * sc), Vector2(c.x, ty + 4 * sc), DIM, 1.0)
+	var lx := c.x - tw * tw_w
+	draw_colored_polygon(PackedVector2Array([Vector2(lx, ty - 1 * sc), Vector2(lx - 5 * sc, ty + 7 * sc), Vector2(lx + 5 * sc, ty + 7 * sc)]), CYAN if absf(tw) < 0.98 else THREAT)
+	if absf(p.twist) > 0.2:
+		_text(Vector2(c.x - 60 * sc, ty + 20 * sc), "LEGS %s%d°" % ["R " if p.twist > 0.0 else "L ", int(absf(rad_to_deg(p.twist)))], int(9 * sc), DIM, HORIZONTAL_ALIGNMENT_CENTER, 120 * sc)
+
+func _draw_throttle_tape(sz: Vector2, sc: float) -> void:
+	var p: Mech = mission.player
+	var c := sz * 0.5
+	var x := c.x - 250 * sc
+	var top := c.y - 90 * sc
+	var h := 180.0 * sc
+	var zero_y := top + h * 0.75
+	_line(Vector2(x, top), Vector2(x, top + h), FAINT, 1.5)
+	for i in 5:
+		var yy := lerpf(zero_y, top, i / 4.0)
+		_line(Vector2(x, yy), Vector2(x - (8 if i % 2 == 0 else 4) * sc, yy), DIM, 1.0)
+	_line(Vector2(x, zero_y), Vector2(x, top + h), Color(THREAT.r, THREAT.g, THREAT.b, 0.4), 1.5)
+	var sk := p.speed / Mech.RUN if p.speed >= 0.0 else p.speed / Mech.BACK
+	var sy := zero_y - (zero_y - top) * sk if sk >= 0.0 else zero_y - (top + h - zero_y) * sk
+	draw_rect(Rect2(x + 2 * sc, minf(sy, zero_y), 4 * sc, absf(zero_y - sy)), INK if sk >= 0.0 else THREAT)
+	var tk := p.throttle
+	var ty := zero_y - (zero_y - top) * tk if tk >= 0.0 else zero_y - (top + h - zero_y) * tk
+	draw_colored_polygon(PackedVector2Array([Vector2(x + 8 * sc, ty), Vector2(x + 16 * sc, ty - 5 * sc), Vector2(x + 16 * sc, ty + 5 * sc)]), CYAN)
+	_text(Vector2(x + 20 * sc, ty + 4 * sc), "%+d" % int(round(tk * 100.0)), int(10 * sc), CYAN)
+	_text(Vector2(x - 70 * sc, top - 10 * sc), "%d KM/H" % int(absf(p.speed) * 3.6), int(13 * sc), INK, HORIZONTAL_ALIGNMENT_LEFT)
+	if p.speed < -0.2:
+		_text(Vector2(x - 70 * sc, top + h + 16 * sc), "REVERSE", int(10 * sc), THREAT)
 
 func _draw_objective(sc: float) -> void:
 	if objective == "":
 		return
-	var pos := Vector2(28, 36) * sc
-	var w := 430.0 * sc
-	draw_rect(Rect2(pos - Vector2(12, 26) * sc, Vector2(w, 86 * sc)), PANEL)
-	draw_rect(Rect2(pos - Vector2(12, 26) * sc, Vector2(3 * sc, 86 * sc)), Color("ff4a5a"))
-	_text(pos, "OPERATION DRY WASH", int(11 * sc), DIM)
-	_text(pos + Vector2(0, 26 * sc), objective, int(19 * sc), BONE, HORIZONTAL_ALIGNMENT_LEFT, -1, Game.font_display)
+	var pos := Vector2(44, 58) * sc
+	draw_rect(Rect2(pos - Vector2(12, 24) * sc, Vector2(2 * sc, 70 * sc)), Color("ff4a5a"))
+	_text(pos, "OPERATION DRY WASH", int(10 * sc), DIM)
+	_text(pos + Vector2(0, 24 * sc), objective, int(19 * sc), INK, HORIZONTAL_ALIGNMENT_LEFT, -1, Game.font_display)
 	if objective_hint != "":
-		_text(pos + Vector2(0, 48 * sc), objective_hint, int(12 * sc), Color("5fd8ff"))
+		_text(pos + Vector2(0, 44 * sc), objective_hint, int(12 * sc), CYAN)
 
 func _draw_radio(sz: Vector2, sc: float) -> void:
 	if current.is_empty():
 		return
 	var who: String = current["who"]
 	var col := Game.color_of(who)
-	var w := minf(760.0 * sc, sz.x - 40)
-	var pos := Vector2((sz.x - w) * 0.5, sz.y - 200 * sc)
+	# comms sit under the objective, top left, clear of the reticle and the dash
+	var w := minf(600.0 * sc, sz.x * 0.5)
+	var pos := Vector2(32 * sc, 138 * sc)
 	var font := Game.font_body
 	var fs := int(17 * sc)
 	var lines := _wrap(current["text"], font, fs, w - 150 * sc)
 	var h := (30 + lines.size() * 22) * sc
-	draw_rect(Rect2(pos, Vector2(w, h)), PANEL)
-	draw_rect(Rect2(pos, Vector2(3 * sc, h)), col)
+	draw_rect(Rect2(pos, Vector2(w, h)), Color(0.02, 0.04, 0.05, 0.45))
+	draw_rect(Rect2(pos, Vector2(2 * sc, h)), col)
 	_text(pos + Vector2(14, 24) * sc, who, int(12 * sc), col)
 	for i in 6:
 		var bh := (3.0 + absf(sin(line_t * 13.0 + i * 1.7)) * 10.0) * sc if radio_player.playing else 2.0
@@ -202,9 +329,9 @@ func _wrap(s: String, font: Font, fs: int, width: float) -> Array[String]:
 
 func _draw_compass(sz: Vector2, sc: float) -> void:
 	var cam_yaw: float = mission.cam_yaw
-	var w := minf(520.0 * sc, sz.x * 0.45)
+	var w := minf(460.0 * sc, sz.x * 0.4)
 	var cx := sz.x * 0.5
-	var y := 28.0 * sc
+	var y := 34.0 * sc
 	var bearing := fposmod(-rad_to_deg(cam_yaw), 360.0)
 	for dd in range(-60, 61, 5):
 		var b := roundf(bearing / 5.0) * 5.0 + dd
@@ -212,20 +339,28 @@ func _draw_compass(sz: Vector2, sc: float) -> void:
 		if absf(px - cx) > w * 0.5:
 			continue
 		var bb := int(fposmod(b, 360.0))
-		var col := Color(BONE.r, BONE.g, BONE.b, 1.0 - absf(px - cx) / (w * 0.5) * 0.8)
+		var col := Color(INK.r, INK.g, INK.b, 0.9 - absf(px - cx) / (w * 0.5) * 0.75)
 		var major := bb % 45 == 0
-		draw_line(Vector2(px, y), Vector2(px, y + (10.0 if major else 5.0) * sc), col, 1.4)
+		_line(Vector2(px, y), Vector2(px, y + (9.0 if major else 4.0) * sc), col, 1.2)
 		if major:
 			_text(Vector2(px - 20 * sc, y - 6 * sc), ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][bb / 45], int(11 * sc), col, HORIZONTAL_ALIGNMENT_CENTER, 40 * sc)
-	draw_colored_polygon(PackedVector2Array([Vector2(cx, y + 13 * sc), Vector2(cx - 5 * sc, y + 20 * sc), Vector2(cx + 5 * sc, y + 20 * sc)]), BONE)
+	_text(Vector2(cx - 30 * sc, y + 30 * sc), "%03d" % int(bearing), int(11 * sc), INK, HORIZONTAL_ALIGNMENT_CENTER, 60 * sc)
+	draw_colored_polygon(PackedVector2Array([Vector2(cx, y + 11 * sc), Vector2(cx - 4 * sc, y + 17 * sc), Vector2(cx + 4 * sc, y + 17 * sc)]), INK)
+	# legs heading on the tape
+	var p: Mech = mission.player
+	var lb := fposmod(-rad_to_deg(p.yaw), 360.0)
+	var ld := wrapf(lb - bearing, -180.0, 180.0)
+	var lx := cx + clampf(ld, -60.0, 60.0) / 60.0 * w * 0.5
+	draw_rect(Rect2(lx - 1.5 * sc, y - 12 * sc, 3 * sc, 9 * sc), CYAN)
 	var wp = mission.waypoint
 	if wp != null:
-		var to: Vector3 = wp - mission.player.position
+		var to: Vector3 = wp - p.position
 		var wb := fposmod(-rad_to_deg(atan2(-to.x, -to.z)), 360.0)
 		var d := wrapf(wb - bearing, -180.0, 180.0)
 		var px := cx + clampf(d, -60.0, 60.0) / 60.0 * w * 0.5
-		draw_rect(Rect2(px - 4 * sc, y + 22 * sc, 8 * sc, 8 * sc), Color("5fd8ff"))
-
+		var k := 5.0 * sc
+		var q := Vector2(px, y + 24 * sc)
+		draw_polyline(PackedVector2Array([q + Vector2(0, -k), q + Vector2(k, 0), q + Vector2(0, k), q + Vector2(-k, 0), q + Vector2(0, -k)]), CYAN, 1.5)
 func _draw_world_markers(sz: Vector2, sc: float) -> void:
 	var p: Mech = mission.player
 	# waypoint
@@ -247,7 +382,7 @@ func _draw_world_markers(sz: Vector2, sc: float) -> void:
 				dir = Vector2.UP
 			pos = sz * 0.5 + dir * minf(sz.x, sz.y) * 0.42
 		var k := 10.0 * sc
-		var col := Color("5fd8ff")
+		var col := CYAN
 		draw_polyline(PackedVector2Array([pos + Vector2(0, -k), pos + Vector2(k, 0), pos + Vector2(0, k), pos + Vector2(-k, 0), pos + Vector2(0, -k)]), col, 2.0)
 		_text(pos + Vector2(-60, 28) * sc, "%s  %dm" % [mission.waypoint_name, int(dist)], int(12 * sc), col, HORIZONTAL_ALIGNMENT_CENTER, 120 * sc)
 	# lancemates
@@ -308,4 +443,4 @@ func _draw_threats(sz: Vector2, sc: float) -> void:
 			var side := Vector2(-dir.y, dir.x) * 10.0 * sc
 			draw_colored_polygon(PackedVector2Array([tip, base + side, base - side]), THREAT)
 	if any:
-		_text(Vector2(0, c.y + 70 * sc), "INCOMING", int(14 * sc), THREAT, HORIZONTAL_ALIGNMENT_CENTER, sz.x)
+		_text(Vector2(0, c.y - 150 * sc), "INCOMING", int(14 * sc), THREAT, HORIZONTAL_ALIGNMENT_CENTER, sz.x)

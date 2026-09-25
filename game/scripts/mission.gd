@@ -1,7 +1,7 @@
 class_name Mission
 extends Node3D
-## Tutorial: Operation Dry Wash. Intro film -> dropship drop -> patrol, drone kill, dodge drill,
-## tac-map targeting, drone wave, extraction.
+## Tutorial: Operation Dry Wash. Intro film -> dropship drop -> patrol, drone kill, evasion drill,
+## tac-map targeting, drone wave, extraction. Played first person from the Striker's cockpit.
 
 signal restart
 signal quit_to_title
@@ -24,18 +24,20 @@ var player: Mech
 var lance: Array[Mech] = []
 var drones: Array[Drone] = []
 var cam: Camera3D
-var cam_yaw := 0.0
-var cam_pitch := -0.12
+var cockpit: Cockpit
+var cam_yaw := 0.0      # torso heading, for the compass
+var cam_pitch := -0.12  # torso pitch
+var want_twist := 0.0   # torso twist the mouse asks for; the torso slews toward it
 var clock := 0.0
 var waypoint = null
 var waypoint_name := ""
 var waypoint_index := -1
-var stats := {"shots": 0, "hits": 0, "dodges": 0, "close": 0, "taken": 0.0, "kills": 0, "lance_kills": 0, "time": 0.0}
+var stats := {"shots": 0, "hits": 0, "evaded": 0, "close": 0, "taken": 0.0, "kills": 0, "lance_kills": 0, "time": 0.0}
 var state := "loading"
 var step := ""
 var step_t := 0.0
 var flags := {}
-var drill_dodges := 0
+var drill_evades := 0
 var drill_drone: Drone
 var wave: Array[Drone] = []
 var shake_amt := 0.0
@@ -48,8 +50,6 @@ var ship_t := 0.0
 var ship_mode := ""
 var fall_v := 0.0
 var landed_t := -1.0
-var cine_from := Transform3D()
-var cine_blend := -1.0
 var marker: Node3D
 var ui: CanvasLayer
 var overlay: Control
@@ -134,7 +134,8 @@ func _build() -> void:
 	add_child(projectiles)
 	projectiles.setup(self)
 	cam = Camera3D.new()
-	cam.fov = 68.0
+	cam.fov = 72.0
+	cam.near = 0.03
 	cam.far = 1600.0
 	add_child(cam)
 	cam.current = true
@@ -154,10 +155,11 @@ func _build() -> void:
 		m.position = _ground(lz + spec[1] + Vector3(0, 0, -14))
 		m.aim_yaw = 0.0
 		lance.append(m)
+	cockpit = Cockpit.new()
+	add_child(cockpit)
+	cockpit.setup(self, cam)
 	_build_ship()
-	hud = Hud.new()
-	ui.add_child(hud)
-	hud.setup(self)
+	hud = Hud.mount(ui, self)
 	tacmap = TacMap.new()
 	ui.add_child(tacmap)
 	tacmap.setup(self)
@@ -316,6 +318,7 @@ func _start_drop(instant: bool) -> void:
 	ship_t = 0.0
 	if instant:
 		ship_t = 8.9
+		hud.link = 0.5
 	else:
 		hud.radio("drop_01")
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -349,6 +352,9 @@ func _tick_ship(delta: float) -> void:
 				flags["mark"] = true
 				hud.radio("drop_02")
 		if ship_t >= 9.0 and landed_t < 0.0:
+			if fall_v == 0.0:
+				Sfx.play("release", 0.0, 0.6)   # clamps let go
+				cockpit.impact(0.5)
 			fall_v += 26.0 * delta
 			player.position.y -= fall_v * delta
 			var g := terrain.sample(player.position.x, player.position.z)
@@ -382,7 +388,9 @@ func _landed() -> void:
 	player.land_crouch = 1.3
 	fx.big_dust(player.position)
 	fx.big_dust(player.position + Vector3(4, 0, 2))
-	shake(1.4)
+	shake(1.0)
+	cockpit.impact(2.2)
+	hud.glitch(0.8)
 	Sfx.play("land", 2.0)
 	get_tree().create_timer(0.9, false).timeout.connect(func(): hud.radio("drop_03"))
 
@@ -408,13 +416,21 @@ func _process(delta: float) -> void:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED and not tacmap.visible and overlay == null:
 			_show_pause()
 	elif state == "drop":
-		player.move_wish = Vector3.ZERO
+		player.throttle = 0.0
+		player.turn = 0.0
 		player.trigger = false
+		if landed_t < 0.0:
+			hud.link = minf(0.5, hud.link + delta * 0.06)
+		else:
+			hud.link = minf(1.0, hud.link + delta * 0.45)
+		cockpit.boot = clampf((clock - landed_t) / 1.4, 0.0, 1.0) if landed_t >= 0.0 else 0.0
 		if landed_t >= 0.0 and clock - landed_t > 1.6:
 			_begin_play()
 	for m in lance:
 		m.ai_tick(player)
 		m.update(delta)
+	if state == "play" or state == "failing":
+		player.slew_torso(want_twist, delta)
 	player.update(delta)
 	for i in range(drones.size() - 1, -1, -1):
 		var d := drones[i]
@@ -423,6 +439,7 @@ func _process(delta: float) -> void:
 			continue
 		d.tick(delta)
 	_update_camera(delta)
+	cockpit.update(delta)
 	var dust := get_node_or_null("AirDust") as CPUParticles3D
 	if dust:
 		dust.global_position = player.position + Vector3(0, 8, 0)
@@ -435,34 +452,30 @@ func _begin_play() -> void:
 	state = "play"
 	player.frozen = false
 	hud.show_combat = true
-	cine_from = cam.global_transform
-	cine_blend = 0.0
+	hud.link = 1.0
+	cockpit.boot = 1.0
 	_set_step("nav_alpha")
 
 func _player_input() -> void:
 	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and not tacmap.visible
-	var ix := Input.get_axis("move_left", "move_right")
-	var iy := Input.get_axis("move_back", "move_forward")
-	var f := Vector3(-sin(cam_yaw), 0.0, -cos(cam_yaw))
-	var r := Vector3(cos(cam_yaw), 0.0, -sin(cam_yaw))
-	var wish := f * iy * (Mech.RUN if iy > 0.0 else Mech.BACK) + r * ix * Mech.STRAFE
-	if wish.length() > Mech.RUN:
-		wish = wish.normalized() * Mech.RUN
-	player.move_wish = wish
-	var dir := 0.0
-	if Input.is_action_just_pressed("dodge") and ix != 0.0:
-		dir = signf(ix)
-	elif Input.is_action_pressed("dodge"):
-		if Input.is_action_just_pressed("move_left"):
-			dir = -1.0
-		elif Input.is_action_just_pressed("move_right"):
-			dir = 1.0
-	if dir != 0.0 and player.try_dodge(dir):
-		fov_kick = 9.0
-		shake(0.35)
+	var delta := get_process_delta_time()
+	# throttle: hold W / S to move the lever; it stops at the zero detent before going into reverse
+	var ti := Input.get_axis("throttle_down", "throttle_up")
+	if ti != 0.0:
+		var nt := clampf(player.throttle + ti * 0.75 * delta, -1.0, 1.0)
+		var just := Input.is_action_just_pressed("throttle_up") or Input.is_action_just_pressed("throttle_down")
+		if player.throttle != 0.0 and signf(nt) != signf(player.throttle) and not just:
+			nt = 0.0
+		player.throttle = nt
+	if Input.is_action_just_pressed("all_stop"):
+		player.throttle = 0.0
+	player.turn = Input.get_axis("turn_right", "turn_left")
+	if Input.is_action_pressed("center_torso"):
+		want_twist = move_toward(want_twist, 0.0, Mech.TWIST_RATE * delta)
+	cockpit.stick_input(Vector2(-player.turn, 0.0) * 0.6)
 	player.trigger = captured and Input.is_action_pressed("fire")
 
-func _bot_input(delta: float) -> void:
+func _bot_input(_delta: float) -> void:
 	var goal = waypoint
 	var shoot: Drone = null
 	var best := 170.0
@@ -474,63 +487,61 @@ func _bot_input(delta: float) -> void:
 		goal = drill_drone.position
 	if shoot:
 		goal = shoot.position
-	if step == "tacmap" and lance[0].ai_target == null and wave.size() > 0:
-		assign(lance[0], wave[0])
+	if step == "tacmap" and lance[0].ai_target == null:
+		for d in wave:
+			if is_instance_valid(d) and d.alive:
+				assign(lance[0], d)
+				break
 	if goal == null:
-		player.move_wish = Vector3.ZERO
+		player.throttle = 0.0
+		player.turn = 0.0
 		return
 	var to: Vector3 = goal - player.position
-	cam_yaw = lerp_angle(cam_yaw, atan2(-to.x, -to.z), 1.0 - exp(-4.0 * delta))
-	var chest := player.position + Vector3(0, 9.0, 0)
-	cam_pitch = clampf(asin(clampf((goal - chest).normalized().y, -1.0, 1.0)) - 0.05, -0.85, 0.42) if shoot else -0.1
 	var flat := Vector2(to.x, to.z).length()
-	var f := Vector3(-sin(cam_yaw), 0.0, -cos(cam_yaw))
-	player.move_wish = f * (Mech.RUN if flat > (60.0 if shoot else 8.0) else 0.0)
-	player.trigger = shoot != null
-	for sb in projectiles.sabots:
-		var n: Node3D = sb["node"]
-		if not sb["done"] and n.position.distance_to(player.position) < 60.0:
-			player.try_dodge(1.0 if int(clock) % 2 == 0 else -1.0)
+	var bearing := atan2(-to.x, -to.z)
+	# torso tracks the goal; legs walk toward it, or cross its line of fire when close
+	want_twist = clampf(wrapf(bearing - player.yaw, -PI, PI), -Mech.TWIST_MAX, Mech.TWIST_MAX)
+	var leg_goal := bearing
+	var thr := 1.0
+	if step == "drill" and flat < 120.0:
+		# cross its line of fire; turn about when a boulder or slope stops the legs
+		if absf(player.speed) < 1.0 and step_t - float(flags.get("bot_flip_t", -9.0)) > 4.0:
+			flags["bot_flip_t"] = step_t
+			flags["bot_side"] = -float(flags.get("bot_side", 1.0))
+		leg_goal = bearing + PI * 0.5 * float(flags.get("bot_side", 1.0))
+		thr = 0.8
+	elif shoot and flat < 60.0:
+		leg_goal = bearing + PI * 0.5
+		thr = 0.5
+	elif not shoot and flat < 8.0:
+		thr = 0.0
+	player.turn = clampf(wrapf(leg_goal - player.yaw, -PI, PI) * 2.0, -1.0, 1.0)
+	player.throttle = thr
+	var chest := player.position + Vector3(0, 9.0, 0)
+	cam_pitch = clampf(asin(clampf((goal - chest).normalized().y, -1.0, 1.0)), Mech.PITCH_MIN, Mech.PITCH_MAX) if shoot else -0.1
+	player.trigger = shoot != null and absf(wrapf(bearing - player.aim_yaw, -PI, PI)) < 0.12
 
 func _update_camera(delta: float) -> void:
-	var target: Transform3D
-	if state == "drop" or (state == "video"):
-		var lz := _ground(Vector3(ROUTE[0].x, 0, ROUTE[0].y))
-		var cpos := lz + Vector3(34, 6, -46)
-		var look := ship.position + Vector3(0, -6, 0)
-		if ship_t >= 9.0 or landed_t >= 0.0 or ship_mode != "in":
-			look = player.position + Vector3(0, 7, 0)
-		target = Transform3D(Basis(), cpos).looking_at(look, Vector3.UP)
-		cam_yaw = 0.0
-		cam_pitch = -0.1
-	else:
-		var piv := player.position + Vector3(0, 9.0, 0)
-		var b := Basis(Vector3.UP, cam_yaw) * Basis(Vector3.RIGHT, cam_pitch)
-		var pos := piv + b * Vector3(3.4, 1.6, 17.5)
-		var g := terrain.sample(pos.x, pos.z) + 1.8
-		if pos.y < g:
-			pos.y = g
-		target = Transform3D(b, pos)
-		# aim: ray from screen center, starting past the player
-		var o := target.origin
-		var d := -target.basis.z
-		var hit := raycast(o + d * 18.0, d, 900.0)
-		player.aim_point = hit["pos"]
-		player.aim_yaw = cam_yaw
-		var chest := player.position + Vector3(0, 7.0, 0)
-		player.aim_pitch = asin(clampf((player.aim_point - chest).normalized().y, -1.0, 1.0))
-	if cine_blend >= 0.0 and state == "play":
-		cine_blend = minf(1.0, cine_blend + delta / 1.3)
-		var k := smoothstep(0.0, 1.0, cine_blend)
-		target = cine_from.interpolate_with(target, k)
-		if cine_blend >= 1.0:
-			cine_blend = -1.0
+	# the cockpit rides the torso: legs heading + twist, torso pitch, a little of the pelvis roll
+	if state != "play" and state != "failing":
+		want_twist = 0.0
+		player.twist = 0.0
+		player.aim_yaw = player.yaw
+		cam_pitch = -0.08
+	var pel: Node3D = player.pv["pelvis"]
+	var b := Basis(Vector3.UP, player.aim_yaw) * Basis(Vector3.RIGHT, cam_pitch) * Basis(Vector3.BACK, pel.rotation.z * 0.4)
+	cockpit.global_transform = Transform3D(b, player.pv["cockpit_cam"].global_position)
+	cam_yaw = player.aim_yaw
+	player.aim_pitch = cam_pitch
+	# aim: ray from the eye through the reticle
+	var d := -b.z
+	var hit := raycast(cockpit.global_position + d * 3.0, d, 900.0)
+	player.aim_point = hit["pos"]
 	shake_amt = maxf(0.0, shake_amt - delta * 2.5)
 	var s := shake_amt * shake_amt
-	target.origin += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * s * 0.5
-	cam.global_transform = target
+	cam.rotation = Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * s * 0.02
 	fov_kick = lerpf(fov_kick, 0.0, 1.0 - exp(-5.0 * delta))
-	cam.fov = 68.0 + fov_kick
+	cam.fov = 72.0 + fov_kick
 
 func _unhandled_input(e: InputEvent) -> void:
 	if state == "video":
@@ -543,8 +554,13 @@ func _unhandled_input(e: InputEvent) -> void:
 	if state != "play" and state != "drop":
 		return
 	if e is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and state == "play":
-		cam_yaw -= e.relative.x * 0.0026
-		cam_pitch = clampf(cam_pitch - e.relative.y * 0.0022, -0.85, 0.42)
+		want_twist = clampf(want_twist - e.relative.x * 0.0022, -Mech.TWIST_MAX, Mech.TWIST_MAX)
+		cam_pitch = clampf(cam_pitch - e.relative.y * 0.0018, Mech.PITCH_MIN, Mech.PITCH_MAX)
+		cockpit.stick_input(Vector2(-e.relative.x, -e.relative.y) * 0.05)
+	elif e is InputEventMouseButton and e.pressed and state == "play" and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED \
+			and (e.button_index == MOUSE_BUTTON_WHEEL_UP or e.button_index == MOUSE_BUTTON_WHEEL_DOWN):
+		var k := 0.1 if e.button_index == MOUSE_BUTTON_WHEEL_UP else -0.1
+		player.throttle = clampf(snappedf(player.throttle + k, 0.1), -1.0, 1.0)
 	elif e is InputEventMouseButton and e.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED and not tacmap.visible:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	elif e.is_action_pressed("map") and state == "play":
@@ -569,6 +585,10 @@ func listener() -> Vector3:
 
 func shake(k: float) -> void:
 	shake_amt = maxf(shake_amt, k)
+
+func footfall(a: float) -> void:
+	cockpit.footfall(a)
+	shake(0.12 * a)
 
 func resolve_move(from: Vector3, to: Vector3, radius: float) -> Vector3:
 	var p := to
@@ -694,22 +714,24 @@ func on_drone_killed(d: Drone, source: Node) -> void:
 		hud.radio("down_" + source.callsign)
 
 func on_sabot_missed(min_d: float, drill: bool) -> void:
-	var dodged := clock - player.last_dodge < 1.6
-	if dodged:
-		stats["dodges"] += 1
-	if dodged and min_d < 8.0:
+	# a miss counts as evaded when the legs were carrying you out of the way
+	var evaded := absf(player.speed) > 4.0
+	if evaded:
+		stats["evaded"] += 1
+	if evaded and min_d < 8.0:
 		stats["close"] += 1
 		slowmo_until = Time.get_ticks_msec() + 380
 		hud.show_callout("CLOSE CALL")
-	if drill and step == "drill" and dodged:
-		drill_dodges += 1
-		if drill_dodges == 1:
+	if drill and step == "drill" and evaded:
+		drill_evades += 1
+		if drill_evades == 1:
 			hud.radio("drill_dodge", true)
 
 func on_player_hit(drill: bool) -> void:
 	stats["taken"] += 1
 	hud.flash_damage()
 	shake(0.9)
+	cockpit.impact(0.8)
 	Sfx.play("hit", 0.0)
 	if drill and step == "drill" and clock - float(flags.get("drill_hit_t", -99.0)) > 7.0:
 		flags["drill_hit_t"] = clock
@@ -749,7 +771,7 @@ func _set_step(s: String) -> void:
 		"nav_alpha":
 			_set_waypoint(1)
 			hud.objective = "Walk to NAV ALPHA"
-			hud.objective_hint = "W A S D move · mouse aims · you strafe on A / D"
+			hud.objective_hint = "W / S throttle · A / D turn the legs · mouse twists the torso"
 			hud.radio("nav_01")
 		"drone1":
 			_set_waypoint(-1)
@@ -773,15 +795,15 @@ func _set_step(s: String) -> void:
 			drill_drone.jitter = 2.0
 			drill_drone.aggro_range = 130.0
 			drill_drone.cooldown = 5.0
-			hud.objective = "Dodge the training sabots (0/2)"
-			hud.objective_hint = "Watch the glow · SHIFT + A or D throws you sideways"
+			hud.objective = "Evade the training sabots (0/2)"
+			hud.objective_hint = "Throttle up and walk across its line of fire · C centres the torso"
 			hud.radio("drill_01")
 			hud.radio("drill_02")
 		"drill_kill":
 			drill_drone.invulnerable = false
 			drill_drone.fire_interval = 5.0
 			hud.objective = "Destroy the drill drone"
-			hud.objective_hint = "Keep moving between bursts"
+			hud.objective_hint = "Keep your legs moving between shots"
 			hud.radio("drill_done", true)
 		"nav_charlie":
 			_set_waypoint(3)
@@ -833,8 +855,8 @@ func _tick_step(delta: float) -> void:
 				hud.radio("sys_waypoint")
 				_set_step("drill")
 		"drill":
-			hud.objective = "Dodge the training sabots (%d/2)" % mini(drill_dodges, 2)
-			if drill_dodges >= 2:
+			hud.objective = "Evade the training sabots (%d/2)" % mini(drill_evades, 2)
+			if drill_evades >= 2:
 				_set_step("drill_kill")
 		"drill_kill":
 			if not drill_drone.alive:
@@ -961,7 +983,7 @@ func _finish(success: bool) -> void:
 		["TIME", "%d:%02d" % [int(stats["time"]) / 60, int(stats["time"]) % 60]],
 		["ACCURACY", "%d%%" % int(acc)],
 		["DRONES · YOU / LANCE", "%d / %d" % [stats["kills"], stats["lance_kills"]]],
-		["SABOTS DODGED", str(stats["dodges"])],
+		["SABOTS EVADED", str(stats["evaded"])],
 		["CLOSE CALLS", str(stats["close"])],
 		["HITS TAKEN", str(int(stats["taken"]))],
 		["ARMOR REMAINING", "%d%%" % int(player.armor)],

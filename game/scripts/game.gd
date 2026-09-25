@@ -4,7 +4,7 @@ extends Node
 const ROSTER := [
 	{"callsign": "GIDEON", "name": "Gideon", "role": "Striker pilot · you",
 		"color": Color("ff4a5a"),
-		"bio": "The first recruit the Wake has taken in thirty years. Knife Cell Striker, unit 27."},
+		"bio": "The first recruit the Wake has taken in thirty years. Pilots Knife Cell Striker unit 27 through a neural implant."},
 	{"callsign": "ANVIL", "name": "Col. Maren Hask", "role": "Commander · age 95",
 		"color": Color("ffb347"),
 		"bio": "Born in the battalion's field hospital. More machine than woman now. She still walks point."},
@@ -63,11 +63,12 @@ func _mouse(action: String, button: MouseButton) -> void:
 	InputMap.action_add_event(action, e)
 
 func _setup_input() -> void:
-	_key("move_forward", [KEY_W, KEY_UP])
-	_key("move_back", [KEY_S, KEY_DOWN])
-	_key("move_left", [KEY_A, KEY_LEFT])
-	_key("move_right", [KEY_D, KEY_RIGHT])
-	_key("dodge", [KEY_SHIFT])
+	_key("throttle_up", [KEY_W, KEY_UP])
+	_key("throttle_down", [KEY_S, KEY_DOWN])
+	_key("turn_left", [KEY_A, KEY_LEFT])
+	_key("turn_right", [KEY_D, KEY_RIGHT])
+	_key("all_stop", [KEY_X])
+	_key("center_torso", [KEY_C])
 	_key("fire", [KEY_SPACE])
 	_mouse("fire", MOUSE_BUTTON_LEFT)
 	_key("map", [KEY_TAB, KEY_M])

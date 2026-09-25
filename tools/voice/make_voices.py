@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Generate IRON WAKE radio voice lines: macOS `say` -> ffmpeg radio chain -> MP3.
 
-  python3 tools/voice/make_voices.py [out_dir]   (default: game/assets/voice)
+  python3 tools/voice/make_voices.py [out_dir] [--only id1,id2]   (default: game/assets/voice)
+
+--only regenerates just those ids and keeps every other line (and its manifest entry) as it is.
 
 Writes <id>.mp3 per line and lines.json (id, who, text, duration) for subtitles.
 Swap `say` for recorded or generated VO later: keep the ids and file names.
@@ -9,7 +11,13 @@ Swap `say` for recorded or generated VO later: keep the ids and file names.
 import json, os, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "../../game/assets/voice")
+args = sys.argv[1:]
+ONLY = None
+if "--only" in args:
+    i = args.index("--only")
+    ONLY = set(args[i + 1].split(","))
+    del args[i:i + 2]
+OUT = args[0] if args else os.path.join(HERE, "../../game/assets/voice")
 spec = json.load(open(os.path.join(HERE, "lines.json")))
 os.makedirs(OUT, exist_ok=True)
 
@@ -24,8 +32,14 @@ def run(cmd):
 
 
 manifest = []
+old = {}
+if ONLY is not None:
+    old = {m["id"]: m for m in json.load(open(os.path.join(OUT, "lines.json")))}
 with tempfile.TemporaryDirectory() as tmp:
     for ln in spec["lines"]:
+        if ONLY is not None and ln["id"] not in ONLY and ln["id"] in old:
+            manifest.append(old[ln["id"]])
+            continue
         v = spec["voices"][ln["who"]]
         raw = os.path.join(tmp, ln["id"] + ".aiff")
         run(["say", "-v", v["say"], "-r", str(v["rate"]), "-o", raw, ln["text"]])

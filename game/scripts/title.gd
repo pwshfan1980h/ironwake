@@ -154,8 +154,9 @@ func _ui() -> void:
 	col.add_child(story_box)
 	controls_box = VBoxContainer.new()
 	controls_box.visible = false
-	var rows := [["W A S D", "Walk and strafe. Legs follow the reticle."], ["MOUSE", "Aim. There is no lock-on: line up the shot."],
-		["SPACE / L-MOUSE", "Chain fire: RAC burst, laser, SRMs, in order."], ["SHIFT + A / D", "Sideways dodge. Two charges."],
+	var rows := [["W / S · WHEEL", "Throttle up and down. It holds where you leave it. X is all stop."],
+		["A / D", "Turn the legs."], ["MOUSE", "Twist and pitch the torso. No lock-on: line up the shot."],
+		["C", "Centre the torso over the legs."], ["SPACE / L-MOUSE", "Chain fire: RAC burst, laser, SRMs, in order."],
 		["TAB", "Tac map. Time slows. Assign lancemates to drones."], ["ESC", "Pause."]]
 	var cg := GridContainer.new()
 	cg.columns = 2

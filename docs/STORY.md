@@ -8,7 +8,7 @@ Motto, from the key art: **Steel people. Harder ground. Further tomorrow.**
 
 ## The enemy
 
-**The Sable combine** is a corporate salvage-and-security outfit pushing hover-drone packs into the Basin's dry washes. Sable drones fire **sabots**: slow, glowing, armor-piercing rounds. They are deadly if you stand still and dodgeable if you watch for the charge glow.
+**The Sable combine** is a corporate salvage-and-security outfit pushing hover-drone packs into the Basin's dry washes. Sable drones fire **sabots**: slow, glowing, armor-piercing rounds. They are deadly if you stand still, and you can walk out of their path if you watch for the charge glow.
 
 ## The lance
 
@@ -30,7 +30,7 @@ Harrow Basin, 18:42 local, dusk.
 2. **Nav Alpha.** Movement and aiming.
 3. **First contact.** One Sable drone. Line up the reticle and chain-fire.
 4. **Nav Bravo.** Pass Tomas's hull.
-5. **Dodge drill.** Ratchet's drill drone fires training sabots. Dodge two with Shift + A/D, then kill it.
+5. **Evasion drill.** Ratchet's drill drone fires training sabots. Evade two by keeping the throttle up and walking across its line of fire, then kill it.
 6. **Nav Charlie.** Four Sables in the wash. Anvil teaches the tac map: pick a lancemate, pick a drone.
 7. **Nav Delta.** Extraction by Lantern. "A hundred years, and the Wake still walks."
 

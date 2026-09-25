@@ -21,7 +21,7 @@ func _ready() -> void:
 	streams["boom"] = _boom(1.4)
 	streams["charge"] = _charge(0.95)
 	streams["hit"] = _clank(0.35)
-	streams["dodge"] = _whoosh(0.5, 0.7, false)
+	streams["release"] = _whoosh(0.5, 0.7, false)
 	streams["ui"] = _blip(0.06, 880.0)
 	streams["select"] = _blip(0.09, 1320.0)
 	streams["alarm"] = _blip(0.18, 620.0)

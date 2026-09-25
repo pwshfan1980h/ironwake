@@ -18,6 +18,21 @@ func _ready() -> void:
 		start_mission(false)
 	else:
 		show_title()
+	for a in args:
+		if a.begins_with("--shot="):
+			_shots(a.substr(7))
+
+## Debug: `--shot=<prefix>,<t1>,<t2>...` saves a screenshot at each time (seconds) then quits.
+func _shots(spec: String) -> void:
+	var parts := spec.split(",")
+	var t0 := 0.0
+	for i in range(1, parts.size()):
+		var tt := float(parts[i])
+		await get_tree().create_timer(tt - t0, true, false, true).timeout
+		t0 = tt
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png("%s_%02d.png" % [parts[0], i])
+	get_tree().quit()
 
 func _swap(n: Node) -> void:
 	get_tree().paused = false
