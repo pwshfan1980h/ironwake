@@ -1,0 +1,62 @@
+{
+  "A": {
+    "name": "Salvage Line",
+    "camo": [
+      "#4d4c3c",
+      "#6e6b59",
+      "#2f2f28"
+    ],
+    "armor_alt": "#77725f",
+    "frame": "#2b2b28",
+    "trim": "#8c2f25",
+    "brass": "#a07a3a",
+    "barrel": "#6f6e6a",
+    "dark": "#141412",
+    "glass": "#4fd6ff",
+    "lamp": "#ffb347",
+    "cp_panel": "#4a4a3e",
+    "cp_frame": "#262622",
+    "cp_trim": "#8c2f25",
+    "screen": "#ffb347"
+  },
+  "B": {
+    "name": "Guild Hauler",
+    "camo": [
+      "#d6d0bf",
+      "#c9c2ae",
+      "#b9b29d"
+    ],
+    "armor_alt": "#d9701e",
+    "frame": "#3a3d40",
+    "trim": "#e9b322",
+    "brass": "#b08d57",
+    "barrel": "#8a8c8e",
+    "dark": "#1a1b1c",
+    "glass": "#ffb347",
+    "lamp": "#ff8a1f",
+    "cp_panel": "#cfc9b8",
+    "cp_frame": "#3a3d40",
+    "cp_trim": "#e9b322",
+    "screen": "#7dffb0"
+  },
+  "C": {
+    "name": "Knife Cell",
+    "camo": [
+      "#2c2f33",
+      "#3b3f45",
+      "#1f2226"
+    ],
+    "armor_alt": "#4a4f55",
+    "frame": "#141618",
+    "trim": "#c8102e",
+    "brass": "#505358",
+    "barrel": "#3a3c40",
+    "dark": "#0b0c0d",
+    "glass": "#ff2a3a",
+    "lamp": "#ff2a3a",
+    "cp_panel": "#1e2124",
+    "cp_frame": "#0f1112",
+    "cp_trim": "#c8102e",
+    "screen": "#ff4a5a"
+  }
+}

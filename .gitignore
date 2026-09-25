@@ -1,0 +1,8 @@
+# Godot
+game/.godot/
+*.import.tmp
+# builds
+build/
+# OS / editor
+.DS_Store
+*.blend1

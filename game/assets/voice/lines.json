@@ -1,0 +1,188 @@
+[
+ {
+  "id": "drop_01",
+  "who": "ANVIL",
+  "text": "Lantern is over the drop zone. Gideon, your clamps release on my mark.",
+  "dur": 6.19
+ },
+ {
+  "id": "drop_02",
+  "who": "ANVIL",
+  "text": "Mark. Welcome to the Harrow Basin.",
+  "dur": 3.82
+ },
+ {
+  "id": "drop_03",
+  "who": "SYSTEM",
+  "text": "Landing. All systems online.",
+  "dur": 1.88
+ },
+ {
+  "id": "nav_01",
+  "who": "ANVIL",
+  "text": "Dry Wash patrol. Four waypoints. Keep your feet under you and your eyes on the ridgelines. Move to Nav Alpha.",
+  "dur": 9.05
+ },
+ {
+  "id": "alpha_01",
+  "who": "KESTREL",
+  "text": "Contact. One Sable drone, hovering past Alpha. It's yours, Gideon.",
+  "dur": 5.2
+ },
+ {
+  "id": "alpha_02",
+  "who": "ANVIL",
+  "text": "Put your reticle on it and hold space. Your weapons fire one after another. Lead it if it moves.",
+  "dur": 7.93
+ },
+ {
+  "id": "kill_first",
+  "who": "KESTREL",
+  "text": "Splash one. Clean work.",
+  "dur": 2.25
+ },
+ {
+  "id": "bravo_go",
+  "who": "ANVIL",
+  "text": "Move to Nav Bravo.",
+  "dur": 2.51
+ },
+ {
+  "id": "bravo_derelict",
+  "who": "ANVIL",
+  "text": "That hull on your left was Tomas. Nineteen years in the sand. Don't stop to look.",
+  "dur": 7.04
+ },
+ {
+  "id": "drill_01",
+  "who": "RATCHET",
+  "text": "Dodge drill, kid. That drone is loaded with training sabots. Watch for the glow, then hit shift with A or D.",
+  "dur": 8.25
+ },
+ {
+  "id": "drill_02",
+  "who": "RATCHET",
+  "text": "They're slow. You're not. Move.",
+  "dur": 3.45
+ },
+ {
+  "id": "drill_dodge",
+  "who": "KESTREL",
+  "text": "Nice slide.",
+  "dur": 1.3
+ },
+ {
+  "id": "drill_hit",
+  "who": "RATCHET",
+  "text": "That's a hit. Again. Watch the glow.",
+  "dur": 3.85
+ },
+ {
+  "id": "drill_done",
+  "who": "RATCHET",
+  "text": "Good. Now put it down.",
+  "dur": 2.96
+ },
+ {
+  "id": "charlie_go",
+  "who": "ANVIL",
+  "text": "Nav Charlie. Kestrel has movement in the wash.",
+  "dur": 4.35
+ },
+ {
+  "id": "charlie_01",
+  "who": "KESTREL",
+  "text": "Four Sables, dug in along the wash. They've seen us.",
+  "dur": 3.55
+ },
+ {
+  "id": "charlie_02",
+  "who": "ANVIL",
+  "text": "Open the tac map with tab. Pick one of us, then pick a drone. We'll take it from there.",
+  "dur": 7.6
+ },
+ {
+  "id": "ack_ANVIL",
+  "who": "ANVIL",
+  "text": "Anvil. Engaging.",
+  "dur": 2.64
+ },
+ {
+  "id": "ack_KESTREL",
+  "who": "KESTREL",
+  "text": "Kestrel. On it.",
+  "dur": 1.85
+ },
+ {
+  "id": "ack_RATCHET",
+  "who": "RATCHET",
+  "text": "Ratchet, moving.",
+  "dur": 2.17
+ },
+ {
+  "id": "down_ANVIL",
+  "who": "ANVIL",
+  "text": "Drone down.",
+  "dur": 1.86
+ },
+ {
+  "id": "down_KESTREL",
+  "who": "KESTREL",
+  "text": "Target down.",
+  "dur": 1.36
+ },
+ {
+  "id": "down_RATCHET",
+  "who": "RATCHET",
+  "text": "Scratch one.",
+  "dur": 1.84
+ },
+ {
+  "id": "charlie_clear",
+  "who": "ANVIL",
+  "text": "Wash is clear. Good hunting, all of you.",
+  "dur": 4.01
+ },
+ {
+  "id": "delta_go",
+  "who": "ANVIL",
+  "text": "Lantern is inbound for pickup at Nav Delta. Bring it home, Gideon.",
+  "dur": 6.16
+ },
+ {
+  "id": "delta_done",
+  "who": "ANVIL",
+  "text": "That's a patrol. A hundred years, and the Wake still walks. Welcome aboard.",
+  "dur": 6.83
+ },
+ {
+  "id": "fail",
+  "who": "ANVIL",
+  "text": "Gideon is down. Get that pilot out of there.",
+  "dur": 4.35
+ },
+ {
+  "id": "sys_incoming",
+  "who": "SYSTEM",
+  "text": "Incoming.",
+  "dur": 0.54
+ },
+ {
+  "id": "sys_heat",
+  "who": "SYSTEM",
+  "text": "Heat critical.",
+  "dur": 0.71
+ },
+ {
+  "id": "sys_armor",
+  "who": "SYSTEM",
+  "text": "Armor critical.",
+  "dur": 0.85
+ },
+ {
+  "id": "sys_waypoint",
+  "who": "SYSTEM",
+  "text": "Waypoint reached.",
+  "dur": 0.9
+ }
+]
