@@ -12,6 +12,8 @@ godot --headless --path game --export-release Web ../build/web/index.html
 python3 tools/serve_web.py          # http://localhost:8060
 ```
 
+Deploy to GitHub Pages: `tools/deploy_web.sh`.
+
 Or open `game/` in the Godot editor and press Play.
 
 Deep links for testing: `#mission` skips the title screen; `#play` also skips the film and the drop.
