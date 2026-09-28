@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 godot --headless --path game --import >/dev/null 2>&1 || true
 godot --headless --path game --export-release Web ../build/web/index.html
+python3 tools/prepare_social.py build/web
 TMP="$(mktemp -d)"
 git worktree add -f "$TMP" gh-pages 2>/dev/null || git worktree add -f --orphan -b gh-pages "$TMP"
 find "$TMP" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
